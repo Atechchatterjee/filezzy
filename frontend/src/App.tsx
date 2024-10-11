@@ -1,6 +1,6 @@
 import { Component, createEffect, createSignal, Index, onMount, Setter } from 'solid-js';
 import { useKeyDownEvent, useKeyDownList } from "@solid-primitives/keyboard";
-import { cn, removeTrailingSlash } from '../lib/utils';
+import { cn, removeTrailingSlash, safeAwait } from '../lib/utils';
 import { ListDir } from '../wailsjs/go/backend/App';
 import "./index.css";
 
@@ -33,7 +33,7 @@ const InputBar: Component<{ setInputRef: Setter<any> }> = ({ setInputRef }) => {
 export const App: Component = () => {
 	const [fileList, setFileList] = createSignal<any[]>([]);
 	const [selectedFile, setSelectedFile] = createSignal<number>(0);
-	const [trigger, setTrigger] = createSignal<-1 | 0 | 1>(0);
+	const [updateFileSelection, setUpdateFileSelection] = createSignal<-1 | 0 | 1>(0);
 
 	const [currentDir, setCurrentDir] = createSignal<string>("/");
 
@@ -67,40 +67,27 @@ export const App: Component = () => {
 
 	const [dirUpdateTrigger, setDirUpdatedTrigger] = createSignal(false);
 
-	createEffect(() => {
-		const e = keyDownEvent();
-		const searchInputActive = document.activeElement === inputRef();
-
-		if (e && !searchInputActive) {
-			if (e.key === "j") {
-				setTrigger(1);
-			}
-			if (e.key === "k") {
-				setTrigger(-1);
-			}
-			if ((e.key === "Enter" || e.key === "l") && !dirUpdateTrigger()) {
-				console.log(removeTrailingSlash(currentDir()) + "/" + fileList()[selectedFile()].FileName);
-				setCurrentDir(currentDir() + "/" + fileList()[selectedFile()].FileName);
-				setDirUpdatedTrigger(true);
-			}
-			if ((e.key === "h") && !dirUpdateTrigger()) {
-				moveToPrevDir();
-			}
-		}
-	});
-
 	createEffect(async () => {
 		if (dirUpdateTrigger()) {
-			const files = await fetchFileList(currentDir());
-			console.log(files);
-			setFileList(files);
-			setDirUpdatedTrigger(false);
-			setSelectedFile(0);
+			const [err, files] = await safeAwait(fetchFileList(currentDir()));
+			if (!err) {
+				setFileList(files);
+				setDirUpdatedTrigger(false);
+				setSelectedFile(0);
+			}
 		}
 	})
 
+	const moveToNextDir = () => {
+		const currentlySelectedFile = fileList()[selectedFile()];
+		setCurrentDir(currentDir() + "/" + currentlySelectedFile.FileName);
+
+		setDirUpdatedTrigger(true);
+	}
+
 	const moveToPrevDir = () => {
 		const trimmedCurrentDir = removeTrailingSlash(currentDir());
+
 		if (trimmedCurrentDir !== "") {
 			setCurrentDir(trimmedCurrentDir.substring(0, trimmedCurrentDir.lastIndexOf('/')));
 			setDirUpdatedTrigger(true);
@@ -108,19 +95,36 @@ export const App: Component = () => {
 	}
 
 	createEffect(() => {
-		if (trigger() === 1 && selectedFile() < fileList().length - 1) {
+		const e = keyDownEvent();
+		const searchInputActive = document.activeElement === inputRef();
+
+		if (e && !searchInputActive) {
+			if (e.key === "j") setUpdateFileSelection(1);
+			if (e.key === "k") setUpdateFileSelection(-1);
+			if ((e.key === "Enter" || e.key === "l") && !dirUpdateTrigger()) moveToNextDir();
+			if (e.key === "h" && !dirUpdateTrigger()) moveToPrevDir();
+		}
+	});
+
+	createEffect(() => {
+		if (updateFileSelection() === 1 && selectedFile() < fileList().length - 1) {
 			setSelectedFile(selectedFile() + 1);
 		}
-		if (trigger() === -1 && selectedFile() > 0) {
+		if (updateFileSelection() === -1 && selectedFile() > 0) {
 			setSelectedFile(selectedFile() - 1);
 		}
-		setTrigger(0);
+		setUpdateFileSelection(0);
 	})
 
 	onMount(async () => {
-		const files = await fetchFileList(currentDir());
-		console.log(files);
-		setFileList(files);
+		const [err, files] = await safeAwait(fetchFileList(currentDir()));
+		if (!err) {
+			console.log(files);
+			setFileList(files);
+		} else {
+			setFileList([]);
+			alert("You don't have permissions to view this folder");
+		}
 	});
 
 	return (
