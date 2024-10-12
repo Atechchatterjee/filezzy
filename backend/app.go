@@ -144,20 +144,21 @@ func (a *App) CreateFile(filePath string) error {
 }
 
 func (a *App) ListDir(dirPath string, additionalParmas types.AdditionalParams) ([]types.FileStruct, error) {
+	fmt.Println("fetching dir list")
 	fileStruct, err := file.GetDirList(dirPath, file.GetDirListOptionalParam{
 		IncludeDotFiles: additionalParmas.IncludeDotfiles,
 	})
 
+	fmt.Println(fileStruct)
+
 	if err != nil {
-		fmt.Println(err)
-		return fileStruct, err
+		return nil, err
 	}
 
 	if additionalParmas.Sort {
 		fileStruct = file.SortFileStructByDir(fileStruct)
 	}
-
-	return fileStruct, err
+	return fileStruct, nil
 }
 
 func (a *App) GetUserHomeDir() (string, error) {
