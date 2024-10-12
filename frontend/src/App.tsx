@@ -5,16 +5,13 @@ import { ListDir } from '../wailsjs/go/backend/App';
 import "./index.css";
 
 async function fetchFileList(specifiedFilePath: string): Promise<any> {
-	return new Promise(async (resolve, reject) => {
-		ListDir(specifiedFilePath, {
-			IncludeDotfiles: false,
-			Sort: true,
-		})
-			.then((res) => {
-				resolve(res);
-			})
-			.catch((err) => reject(err));
-	});
+	const [err, dirList] = await safeAwait(ListDir(specifiedFilePath, {
+		IncludeDotfiles: false,
+		Sort: true,
+	}));
+
+	if (err) return Promise.reject(err);
+	return Promise.resolve(dirList);
 }
 
 const InputBar: Component<{ setInputRef: Setter<any> }> = ({ setInputRef }) => {
@@ -56,6 +53,7 @@ export const App: Component = () => {
 
 	const keyCombo = useKeyDownList();
 
+	// keybinds for search box
 	createEffect(() => {
 		if (keyCombo()[0] === "CONTROL" && keyCombo()[1] === "F") {
 			inputRef()?.focus();
@@ -67,6 +65,7 @@ export const App: Component = () => {
 
 	const [dirUpdateTrigger, setDirUpdatedTrigger] = createSignal(false);
 
+	// fetches the fileList when triggered (i.e. directory changed)
 	createEffect(async () => {
 		if (dirUpdateTrigger()) {
 			const [err, files] = await safeAwait(fetchFileList(currentDir()));
@@ -74,35 +73,52 @@ export const App: Component = () => {
 				setFileList(files);
 				setDirUpdatedTrigger(false);
 				setSelectedFile(0);
+			} else {
+				updateCurDirToPrev({ triggerRender: false });
 			}
 		}
-	})
+	});
 
-	const moveToNextDir = () => {
+	const updateCurDirToNext = ({ triggerRender }: { triggerRender?: boolean } = {}) => {
 		const currentlySelectedFile = fileList()[selectedFile()];
 		setCurrentDir(currentDir() + "/" + currentlySelectedFile.FileName);
 
-		setDirUpdatedTrigger(true);
+		// by default this would cause the fileList to be refetched
+		setDirUpdatedTrigger(triggerRender ?? true);
 	}
 
-	const moveToPrevDir = () => {
+	const updateCurDirToPrev = ({ triggerRender }: { triggerRender?: boolean } = {}) => {
 		const trimmedCurrentDir = removeTrailingSlash(currentDir());
 
 		if (trimmedCurrentDir !== "") {
 			setCurrentDir(trimmedCurrentDir.substring(0, trimmedCurrentDir.lastIndexOf('/')));
-			setDirUpdatedTrigger(true);
+
+			// by default this would cause the fileList to be refetched
+			setDirUpdatedTrigger(triggerRender ?? true);
 		}
 	}
 
 	createEffect(() => {
 		const e = keyDownEvent();
+
+		// checks if the input search box is focused
 		const searchInputActive = document.activeElement === inputRef();
 
 		if (e && !searchInputActive) {
-			if (e.key === "j") setUpdateFileSelection(1);
-			if (e.key === "k") setUpdateFileSelection(-1);
-			if ((e.key === "Enter" || e.key === "l") && !dirUpdateTrigger()) moveToNextDir();
-			if (e.key === "h" && !dirUpdateTrigger()) moveToPrevDir();
+			if (e.key === "j") {
+				setUpdateFileSelection(1);
+			} if (e.key === "k") {
+				setUpdateFileSelection(-1);
+			}
+			console.log("key = ", e.key);
+			if ((e.key === "Enter" || e.key === "l") && !dirUpdateTrigger()) {
+				console.log("moving next dir");
+				updateCurDirToNext();
+			}
+			if (e.key === "h" && !dirUpdateTrigger()) {
+				console.log("moving prev dir");
+				updateCurDirToPrev();
+			}
 		}
 	});
 
@@ -117,6 +133,7 @@ export const App: Component = () => {
 	})
 
 	onMount(async () => {
+		console.log("on mount fetch dir list");
 		const [err, files] = await safeAwait(fetchFileList(currentDir()));
 		if (!err) {
 			console.log(files);
@@ -128,12 +145,15 @@ export const App: Component = () => {
 	});
 
 	return (
-		<div class="flex flex-col rounded-xl">
+		<div class="flex flex-col rounded-xl"
+		>
 			<InputBar setInputRef={setInputRef} />
-			<div class="text-white space-y-2 px-4 py-4 mt-14" on:keydown={(key) => {
-				console.log(key);
-				alert("hi");
-			}}>
+			<div class="text-white space-y-2 px-4 py-4 mt-14 h-[100vh]"
+				on:keypress={(key) => {
+					console.log(key);
+					alert("hi");
+				}}
+			>
 				<Index each={fileList()} fallback={"loading"}>
 					{(file, i) => (
 						<div
