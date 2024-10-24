@@ -6,8 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 )
 
 // sorts the file structs keeping the order - directories followed by regular files or visa-versa
@@ -37,57 +40,111 @@ func RemoveDotfiles(fileStructs []types.FileStruct) []types.FileStruct {
 	return fileStructsWithoutDotfiles
 }
 
-func ReadDirWithPermissionCheck(path string) ([]fs.DirEntry, error) {
-	// Get absolute path
-	absPath, err := filepath.Abs(path)
+type GetDirListOptionalParam struct {
+	IncludeDotFiles bool
+}
+
+// checkPermissions helper function to check if the required permissions are present
+func checkPermissions(mode fs.FileMode, mask fs.FileMode) bool {
+	// For directories, we need execute permission to access
+	if mode.IsDir() {
+		return mode&mask&0111 != 0
+	}
+	// For regular files, we just need read permission
+	return mode&mask&0444 != 0
+}
+
+func HasAccess(entry fs.DirEntry) (bool, error) {
+	// Get file info to access detailed permissions
+	info, err := entry.Info()
+	if err != nil {
+		return false, err
+	}
+
+	// Get the current user
+	currentUser, err := user.Current()
+	if err != nil {
+		return false, err
+	}
+
+	// Convert user ID to integer
+	uid, err := strconv.ParseUint(currentUser.Uid, 10, 32)
+	if err != nil {
+		return false, err
+	}
+
+	// Get file's stat information
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false, err
+	}
+
+	// Get primary group ID of current user
+	gid, err := strconv.ParseUint(currentUser.Gid, 10, 32)
+	if err != nil {
+		return false, err
+	}
+
+	mode := info.Mode()
+
+	// Check if user is owner
+	if uint32(uid) == stat.Uid {
+		// Check owner permissions
+		return checkPermissions(mode, 0700), nil
+	}
+
+	// Check if user is in file's group
+	if uint32(gid) == stat.Gid {
+		// Check group permissions
+		return checkPermissions(mode, 0070), nil
+	}
+
+	// Check others permissions
+	return checkPermissions(mode, 0007), nil
+}
+
+func GetDirList(dirPath string, optionList GetDirListOptionalParam) ([]types.FileStruct, error) {
+	// Get absolute path (i.e. from the root '/')
+	absPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("error getting absolute path: %v", err)
 	}
 
-	// Check if the path exists
 	_, err = os.Stat(absPath)
 	if os.IsNotExist(err) {
 		return nil, fmt.Errorf("path does not exist: %s", absPath)
 	}
 
-	// Check read permission
 	files, err := os.ReadDir(absPath)
 	if err != nil {
 		fmt.Print(err)
 		return nil, fmt.Errorf("no read permission for %s: %v", absPath, err)
 	}
 
-	return files, nil
-}
-
-type GetDirListOptionalParam struct {
-	IncludeDotFiles bool
-}
-
-func GetDirList(dirPath string, optionList GetDirListOptionalParam) ([]types.FileStruct, error) {
-	files, err := ReadDirWithPermissionCheck(dirPath)
-
 	var fileStruct []types.FileStruct
-
-	if err != nil {
-		return []types.FileStruct{}, err
-	}
 
 	for _, file := range files {
 		var fileInfoStruct types.FileStruct
+		perm, err := HasAccess(file)
+
+		if err != nil {
+			fmt.Println("Error in accessing the file")
+			return []types.FileStruct{}, err
+		}
+
+		fmt.Println(file.Name(), perm)
+
+		fileInfoStruct = types.FileStruct{
+			FileName: file.Name(),
+			IsDir:    file.IsDir(),
+			Perm:     perm,
+		}
+
 		if !optionList.IncludeDotFiles {
 			if file.Name()[0] != '.' {
-				fileInfoStruct = types.FileStruct{
-					FileName: file.Name(),
-					IsDir:    file.IsDir(),
-				}
 				fileStruct = append(fileStruct, fileInfoStruct)
 			}
 		} else {
-			fileInfoStruct = types.FileStruct{
-				FileName: file.Name(),
-				IsDir:    file.IsDir(),
-			}
 			fileStruct = append(fileStruct, fileInfoStruct)
 		}
 	}
