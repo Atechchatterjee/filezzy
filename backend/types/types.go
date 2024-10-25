@@ -9,4 +9,5 @@ type FileStruct struct {
 type AdditionalParams struct {
 	IncludeDotfiles bool
 	Sort            bool
+	SearchParam     string
 }

@@ -143,7 +143,10 @@ func (a *App) CreateFile(filePath string) error {
 	return err
 }
 
-func (a *App) ListDir(dirPath string, additionalParmas types.AdditionalParams) ([]types.FileStruct, error) {
+func (a *App) ListDir(
+	dirPath string,
+	additionalParmas types.AdditionalParams,
+) ([]types.FileStruct, error) {
 	fmt.Println("fetching dir list")
 	fileStruct, err := file.GetDirList(dirPath, file.GetDirListOptionalParam{
 		IncludeDotFiles: additionalParmas.IncludeDotfiles,
@@ -158,6 +161,11 @@ func (a *App) ListDir(dirPath string, additionalParmas types.AdditionalParams) (
 	if additionalParmas.Sort {
 		fileStruct = file.SortFileStructByDir(fileStruct)
 	}
+
+	if additionalParmas.SearchParam != "" {
+
+	}
+
 	return fileStruct, nil
 }
 
@@ -207,4 +215,37 @@ func (a *App) RenameFile(oldName string, newName string) error {
 	}
 
 	return nil
+}
+
+func (a *App) SearchFiles(currentDirectory, searchParam string) ([]types.FileStruct, error) {
+	var matches []types.FileStruct
+
+	fmt.Println("searching files...")
+
+	// Read directory entries
+	entries, err := os.ReadDir(currentDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("error reading directory: %v", err)
+	}
+
+	// Iterate through directory entries
+	for _, entry := range entries {
+		if strings.Contains(strings.ToLower(entry.Name()), strings.ToLower(searchParam)) {
+			// if !includeDotFiles && entry.Name()[0] != '.' {
+			perm, err := file.HasAccess(entry)
+
+			if err != nil {
+				fmt.Println("Failed to fetch permssions of ", entry.Name())
+			}
+
+			matches = append(matches, types.FileStruct{
+				FileName: entry.Name(),
+				IsDir:    entry.IsDir(),
+				Perm:     perm,
+			})
+			// }
+		}
+	}
+
+	return matches, nil
 }

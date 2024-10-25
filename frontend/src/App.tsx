@@ -1,9 +1,10 @@
 import { useKeyboardEvents } from '../lib/keyboardEvents';
-import { Component, createEffect, createSignal, Index, Setter } from 'solid-js';
+import { Component, createEffect, createSignal, Index, onCleanup, Setter } from 'solid-js';
 import { useKeyDownList } from "@solid-primitives/keyboard";
 import { cn, removeTrailingSlash, safeAwait } from '../lib/utils';
-import { ListDir } from '../wailsjs/go/backend/App';
+import { ListDir, OpenWithDefaultApplication, SearchFiles } from '../wailsjs/go/backend/App';
 import "./index.css";
+import Empty from './components/Empty';
 
 async function fetchFileList(specifiedFilePath: string): Promise<any> {
 	const [err, dirList] = await safeAwait(ListDir(specifiedFilePath, {
@@ -16,10 +17,12 @@ async function fetchFileList(specifiedFilePath: string): Promise<any> {
 }
 
 const InputBar: Component<{ setInputRef: Setter<any>, moveToPrevDir?: () => void }> = ({ setInputRef, moveToPrevDir }) => {
+	const [focus, setFocus] = createSignal(false);
+
 	return (
-		<div class="flex gap-6 w-full h-[3.2rem] bg-[#262A32] border border-[#434A58] items-center px-4 fixed" style={{ widows: 1 }}>
-			<img src="/src/assets/back-arrow-fill.svg" alt="arrow-back-fill" class="h-6 w-6" onClick={moveToPrevDir} />
-			<input id="search-input" class="h-[100%] bg-[#262A32] text-white focus:outline-none text-lg w-full cursor-default" placeholder="Search" ref={setInputRef} />
+		<div class={cn("flex gap-6 w-full h-[3.2rem] ", focus() ? "bg-[#2E323A]" : "bg-[#262A32]", "rounded-t-lg border", focus() ? "border-[#949CAA]" : "border-[#434A58]", " items-center px-4 fixed")} style={{ widows: 1 }}>
+			<img src="/src/assets/back-arrow-fill.svg" alt="arrow-back-fill" class="h-6 w-6 cursor-pointer hover:opacity-80" onClick={moveToPrevDir} />
+			<input id="search-input" class={cn("h-[100%] ", focus() ? "bg-[#2E323A]" : "bg-[#262A32]", "text-white focus:outline-none text-lg w-full cursor-default")} placeholder="Search" ref={setInputRef} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} />
 			<div class="flex gap-4 ml-auto">
 				<img src="/src/assets/search-icon.svg" alt="arrow-back-fill" class="h-5 w-5" />
 				<img src="/src/assets/menu-icon.svg" alt="arrow-back-fill" class="h-5 w-5" />
@@ -34,18 +37,31 @@ export const App: Component = () => {
 	const [selectedFile, setSelectedFile] = createSignal<number>(0);
 	const [currentDir, setCurrentDir] = createSignal<string>("/");
 
+	const [disableScrolling, setDisableScrolling] = createSignal<boolean>(false);
+
 	const [inputRef, setInputRef] = createSignal<HTMLInputElement>();
 
 	const fileItemsRef: any[] = [];
 
+	// disables auto scrolling when moving focus of selected files
+	const bodyOnClick = () => {
+		setDisableScrolling(true);
+	}
+
+	document.body.addEventListener("click", bodyOnClick);
+	onCleanup(() => document.body.removeEventListener("click", bodyOnClick));
+
 	createEffect(() => {
-		const focusedElement = fileItemsRef[selectedFile()];
-		if (focusedElement) {
-			focusedElement.scrollIntoView({
-				behavior: "instant",
-				block: "center",
-				inline: "center",
-			});
+		// should not scroll if user is selecting files using clicks
+		if (!disableScrolling()) {
+			const focusedElement = fileItemsRef[selectedFile()];
+			if (focusedElement) {
+				focusedElement.scrollIntoView({
+					behavior: "instant",
+					block: "center",
+					inline: "center",
+				});
+			}
 		}
 	});
 
@@ -62,40 +78,32 @@ export const App: Component = () => {
 
 	const updateCurDirToNext = () => {
 		const currentlySelectedFile = fileList()[selectedFile()];
-		setCurrentDir(currentDir() + "/" + currentlySelectedFile.FileName);
+		setCurrentDir(removeTrailingSlash(currentDir()) + "/" + currentlySelectedFile.FileName);
 	}
 
 	const updateCurDirToPrev = () => {
 		const trimmedCurrentDir = removeTrailingSlash(currentDir());
 		if (trimmedCurrentDir !== "") {
-			setCurrentDir(trimmedCurrentDir.substring(0, trimmedCurrentDir.lastIndexOf('/')));
+			setCurrentDir(trimmedCurrentDir.substring(0, trimmedCurrentDir.lastIndexOf('/') + 1));
 		}
 	}
 
 	const searchInputActive = () => document.activeElement === inputRef();
 
-	useKeyboardEvents((key) => {
-		if (searchInputActive()) return;
+	const enterFileAction = () => {
+		const currentlySelectedFile = fileList()[selectedFile()];
 
-		// Navigate only if input-box is not active (in-focus)
-		if (key === "j") {
-			if (selectedFile() < fileList().length - 1) {
-				setSelectedFile(selectedFile() + 1);
-			}
-		} if (key === "k") {
-			if (selectedFile() > 0) {
-				setSelectedFile(selectedFile() - 1);
-			}
-		}
-		if ((key === "Enter" || key === "l")) {
+		if (!currentlySelectedFile.Perm) return;
+
+		if (currentlySelectedFile.IsDir === true) {
 			updateCurDirToNext();
+		} else {
+			console.log("opening with default ...");
+			OpenWithDefaultApplication(currentDir() + "/" + currentlySelectedFile.FileName);
 		}
-		if (key === "h") {
-			updateCurDirToPrev();
-		}
-	});
+	}
 
-	createEffect(async () => {
+	const fetchList = async () => {
 		const [err, files] = await safeAwait(fetchFileList(currentDir()));
 		if (!err) {
 			console.log(files);
@@ -104,32 +112,94 @@ export const App: Component = () => {
 		} else {
 			updateCurDirToPrev();
 		}
+	}
+
+	useKeyboardEvents(async (event) => {
+		const key: string = event.key;
+		// keybinds when input box is in focus
+		if (searchInputActive()) {
+			if (key === "Enter") {
+				const iRef = inputRef();
+				if (iRef !== undefined) {
+					if (iRef.value === "") {
+						fetchList();
+						iRef.blur()
+						setSelectedFile(0);
+					} else {
+						const matchedFileList = await SearchFiles(currentDir(), iRef.value)
+						setFileList(matchedFileList);
+						iRef.value = "";
+						iRef.blur()
+						setSelectedFile(0);
+					}
+				}
+			}
+			return;
+		}
+
+		// Keybinds when inputbox is not in fox
+		if (key === "/") {
+			event.preventDefault();
+			inputRef()?.focus();
+		}
+		if (key === "j") {
+			if (disableScrolling()) setDisableScrolling(false);
+
+			if (selectedFile() < fileList().length - 1) {
+				setSelectedFile(selectedFile() + 1);
+			}
+		} if (key === "k") {
+			if (disableScrolling()) setDisableScrolling(false);
+
+			if (selectedFile() > 0) {
+				setSelectedFile(selectedFile() - 1);
+			}
+		}
+		if ((key === "Enter" || key === "l")) {
+			enterFileAction();
+		}
+		if (key === "h") {
+			updateCurDirToPrev();
+		}
 	});
 
+	createEffect(fetchList);
+
 	return (
-		<div class="flex flex-col rounded-xl">
-			<InputBar setInputRef={setInputRef} moveToPrevDir={updateCurDirToPrev} />
-			<div class="text-white space-y-2 px-4 py-4 mt-14 h-[100vh]">
-				<Index each={fileList()} fallback={"Empty"}>
-					{(file, i) => (
-						<div
-							class={cn("flex gap-4 py-3 px-4 hover:bg-[#303540] rounded-md items-center cursor-pointer select-none", selectedFile() === i ? "bg-[#303540]" : "")}
-							ref={el => fileItemsRef[i] = el}
-							onClick={() => {
-								setSelectedFile(i);
-								updateCurDirToNext();
-							}}
-						>
-							<img src={file().IsDir ? "/src/assets/folder-icon.svg" : "/src/assets/file-icon.svg"} alt="folder-icon" class="h-5 w-5" />
-							<div class="">{file().FileName}</div>
-							{!file().Perm ?
-								<img src={"/src/assets/lock-icon.svg"} alt="lock-icon" class="h-5 w-5 ml-auto" />
-								: ""}
-						</div>
-					)}
-				</Index>
+		<>
+			<div class="flex flex-col rounded-xl">
+				<InputBar setInputRef={setInputRef} moveToPrevDir={updateCurDirToPrev} />
+				<div class="w-full h-[3.2rem]"></div>
+				<div class="text-white space-y-2 px-4 py-4 h-[100vh]">
+					<Index each={fileList()} fallback={<Empty />}>
+						{(file, i) => (
+							<div
+								class={cn("flex gap-4 py-3 px-4 hover:bg-[#303540] rounded-md items-center cursor-pointer select-none overflow-clip", selectedFile() === i ? "bg-[#303540]" : "")}
+								ref={el => fileItemsRef[i] = el}
+								onClick={() => {
+									setTimeout(() => {
+										setSelectedFile(i);
+									}, 100);
+								}}
+								onDblClick={() => {
+									setSelectedFile(i);
+									enterFileAction();
+								}}
+							>
+								<img src={file().IsDir ? "/src/assets/folder-icon.svg" : "/src/assets/file-icon.svg"} alt="folder-icon" class="h-5 w-5" />
+								<div class="">{file().FileName}</div>
+								{!file().Perm ?
+									<img src={"/src/assets/lock-icon.svg"} alt="lock-icon" class="h-5 w-5 ml-auto" />
+									: ""}
+							</div>
+						)}
+					</Index>
+				</div>
 			</div>
-		</div>
+			<div class="fixed bottom-[1rem] right-[1rem] py-1 px-4 bg-[#252933] text-white rounded-full">
+				{currentDir()}
+			</div>
+		</>
 	)
 };
 

@@ -1,9 +1,9 @@
 import { createEffect } from 'solid-js';
 
-export function useKeyboardEvents(cb?: (key: string) => void) {
+export function useKeyboardEvents(cb?: (key: any) => void) {
 	createEffect(() => {
 		const handleKeyPress = (event: any) => {
-			if (cb) cb(event.key);
+			if (cb) cb(event);
 		};
 
 		window.addEventListener('keydown', handleKeyPress);

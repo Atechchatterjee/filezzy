@@ -28,3 +28,5 @@ export function OpenWithDefaultApplication(arg1:string):Promise<void>;
 export function RemoveFile(arg1:string):Promise<void>;
 
 export function RenameFile(arg1:string,arg2:string):Promise<void>;
+
+export function SearchFiles(arg1:string,arg2:string):Promise<Array<types.FileStruct>>;

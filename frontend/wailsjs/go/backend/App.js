@@ -53,3 +53,7 @@ export function RemoveFile(arg1) {
 export function RenameFile(arg1, arg2) {
   return window['go']['backend']['App']['RenameFile'](arg1, arg2);
 }
+
+export function SearchFiles(arg1, arg2) {
+  return window['go']['backend']['App']['SearchFiles'](arg1, arg2);
+}
