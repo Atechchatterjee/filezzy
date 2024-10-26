@@ -132,8 +132,6 @@ func GetDirList(dirPath string, optionList GetDirListOptionalParam) ([]types.Fil
 			return []types.FileStruct{}, err
 		}
 
-		fmt.Println(file.Name(), perm)
-
 		fileInfoStruct = types.FileStruct{
 			FileName: file.Name(),
 			IsDir:    file.IsDir(),
@@ -154,15 +152,6 @@ func GetDirList(dirPath string, optionList GetDirListOptionalParam) ([]types.Fil
 
 func GetFileType(filePath string) (string, error) {
 	out, err := exec.Command("xdg-mime", "query", "filetype", filePath).Output()
-	if err != nil {
-		return "", err
-	}
-
-	return strings.TrimSpace(string(out)), nil
-}
-
-func GetAssociatedProgram(filePath string) (string, error) {
-	out, err := exec.Command("xdg-mime", "query", "default", filePath).Output()
 	if err != nil {
 		return "", err
 	}
