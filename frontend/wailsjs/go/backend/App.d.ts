@@ -3,9 +3,13 @@
 import {context} from '../models';
 import {types} from '../models';
 
+export function CopyFile(arg1:string,arg2:string):Promise<number>;
+
 export function CreateDir(arg1:string):Promise<void>;
 
 export function CreateFile(arg1:string):Promise<void>;
+
+export function DeleteFile(arg1:string):Promise<void>;
 
 export function DomReady(arg1:context.Context):Promise<void>;
 
@@ -23,7 +27,7 @@ export function OpenImageInFeh(arg1:string):Promise<void>;
 
 export function OpenPdfInXDG(arg1:string):Promise<void>;
 
-export function OpenWithDefaultApplication(arg1:string):Promise<void>;
+export function OpenWithDefaultApplication(arg1:string,arg2:types.FileStruct):Promise<void>;
 
 export function RemoveFile(arg1:string):Promise<void>;
 

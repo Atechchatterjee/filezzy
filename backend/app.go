@@ -3,6 +3,8 @@ package backend
 import (
 	"context"
 	"fmt"
+	"io"
+	"runtime"
 	"strings"
 
 	"filezzy/backend/file"
@@ -33,42 +35,26 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
 
 func (a *App) Shutdown(ctx context.Context) {}
 
-func (a *App) OpenWithDefaultApplication(filePath string) error {
-	fmt.Printf("Opening %s with default\n", filePath)
-	fileType, err := file.GetFileType(filePath)
-	if err != nil {
-		fmt.Println(err)
-		return err
+func (a *App) OpenWithDefaultApplication(filePath string, selectedFile types.FileStruct) error {
+	if selectedFile.IsDir {
+		return fmt.Errorf("Can not open a directory")
 	}
-	fmt.Printf("file type = %s\n", fileType)
+	var cmd *exec.Cmd
 
-	defaultApplication, err := file.GetAssociatedProgram(fileType)
-
-	if err != nil {
-		fmt.Println(err)
-		return err
+	switch runtime.GOOS {
+	case "darwin": // macOS
+		cmd = exec.Command("open", filePath)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", filePath)
+	case "linux":
+		cmd = exec.Command("xdg-open", filePath)
+	default:
+		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
 
-	if defaultApplication == "" {
-		// if no default application found it picks from the registered applications
-		registeredApplications, err := file.GetRegisteredApplications(fileType)
-
-		if err != nil {
-			return err
-		}
-
-		fmt.Println(registeredApplications)
-		err = file.OpenFile(registeredApplications[0], filePath)
-
-		if err != nil {
-			return err
-		}
-	} else {
-		err := file.OpenFile(defaultApplication, filePath)
-
-		if err != nil {
-			return err
-		}
+	err := cmd.Start()
+	if err != nil {
+		return fmt.Errorf("failed to open file: %v", err)
 	}
 
 	return nil
@@ -248,4 +234,38 @@ func (a *App) SearchFiles(currentDirectory, searchParam string) ([]types.FileStr
 	}
 
 	return matches, nil
+}
+
+func (a *App) CopyFile(src, dst string) (int64, error) {
+	sourceFileStat, err := os.Stat(src)
+	if err != nil {
+		return 0, err
+	}
+
+	if !sourceFileStat.Mode().IsRegular() {
+		return 0, fmt.Errorf("%s is not a regular file", src)
+	}
+
+	source, err := os.Open(src)
+	if err != nil {
+		return 0, err
+	}
+	defer source.Close()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return 0, err
+	}
+	defer destination.Close()
+	nBytes, err := io.Copy(destination, source)
+	return nBytes, err
+}
+
+func (a *App) DeleteFile(filePath string) error {
+	err := os.RemoveAll(filePath)
+	fmt.Println("deleting file: ", filePath)
+	if err != nil {
+		fmt.Println(err)
+	}
+	return err
 }

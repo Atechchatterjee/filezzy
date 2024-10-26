@@ -1,8 +1,8 @@
 import { useKeyboardEvents } from '../lib/keyboardEvents';
 import { Component, createEffect, createSignal, Index, onCleanup, Setter } from 'solid-js';
 import { useKeyDownList } from "@solid-primitives/keyboard";
-import { cn, removeTrailingSlash, safeAwait } from '../lib/utils';
-import { ListDir, OpenWithDefaultApplication, SearchFiles } from '../wailsjs/go/backend/App';
+import { cn, removeTrailingSlash, safeAwait, truncateFilePath } from '../lib/utils';
+import { CopyFile, DeleteFile, ListDir, OpenWithDefaultApplication, SearchFiles } from '../wailsjs/go/backend/App';
 import "./index.css";
 import Empty from './components/Empty';
 
@@ -37,6 +37,9 @@ export const App: Component = () => {
 	const [selectedFile, setSelectedFile] = createSignal<number>(0);
 	const [currentDir, setCurrentDir] = createSignal<string>("/");
 
+	const [copySource, setCopySource] = createSignal<string>();
+	const [copyDest, setCopyDest] = createSignal<string>();
+
 	const [disableScrolling, setDisableScrolling] = createSignal<boolean>(false);
 
 	const [inputRef, setInputRef] = createSignal<HTMLInputElement>();
@@ -65,14 +68,53 @@ export const App: Component = () => {
 		}
 	});
 
+	const fetchList = async () => {
+		console.log("fetching new file");
+		const [err, files] = await safeAwait(fetchFileList(currentDir()));
+		if (!err) {
+			console.log(files);
+			setFileList(files);
+			setSelectedFile(0);
+		} else {
+			updateCurDirToPrev();
+		}
+	}
+
 	const keyCombo = useKeyDownList();
 
-	createEffect(() => {
+	// used for detecting consecutive presses
+	let GPress = false, DPress = false;
+
+	let fileToCopyName = ""; // to keep track of copied file name
+
+	createEffect(async () => {
 		if (keyCombo()[0] === "CONTROL" && keyCombo()[1] === "F") {
 			inputRef()?.focus();
 		}
+
+		if (keyCombo()[0] === "SHIFT" && keyCombo()[1] === "G") {
+			const len = fileList().length;
+			setSelectedFile(len - 1);
+			GPress = false;
+		}
+
 		if (keyCombo()[0] === "ESCAPE") {
 			inputRef()?.blur();
+		}
+
+		if (keyCombo()[0] === "CONTROL" && keyCombo()[1] === "C") {
+			const currentlySelectedFile = fileList()[selectedFile()];
+			fileToCopyName = currentlySelectedFile.FileName;
+			setCopySource(currentDir() + "/" + currentlySelectedFile.FileName);
+		}
+		if (keyCombo()[0] === "CONTROL" && keyCombo()[1] === "V") {
+			setCopyDest(currentDir() + "/" + fileToCopyName);
+			const cs = copySource(), ds = copyDest();
+			if (cs && ds) {
+				alert(cs + " -> " + ds);
+				await safeAwait(CopyFile(cs, ds));
+				fetchList();
+			}
 		}
 	})
 
@@ -90,27 +132,19 @@ export const App: Component = () => {
 
 	const searchInputActive = () => document.activeElement === inputRef();
 
-	const enterFileAction = () => {
+	const enterFileAction = async () => {
 		const currentlySelectedFile = fileList()[selectedFile()];
 
 		if (!currentlySelectedFile.Perm) return;
 
-		if (currentlySelectedFile.IsDir === true) {
+		if (currentlySelectedFile.IsDir) {
 			updateCurDirToNext();
 		} else {
-			console.log("opening with default ...");
-			OpenWithDefaultApplication(currentDir() + "/" + currentlySelectedFile.FileName);
-		}
-	}
-
-	const fetchList = async () => {
-		const [err, files] = await safeAwait(fetchFileList(currentDir()));
-		if (!err) {
-			console.log(files);
-			setFileList(files);
-			setSelectedFile(0);
-		} else {
-			updateCurDirToPrev();
+			console.log("opening with default ... ", currentlySelectedFile.IsDir);
+			if (!currentlySelectedFile.IsDir) {
+				console.log("opening = ", currentDir() + "/" + currentlySelectedFile.FileName)
+				await safeAwait(OpenWithDefaultApplication(currentDir() + "/" + currentlySelectedFile.FileName, currentlySelectedFile));
+			}
 		}
 	}
 
@@ -136,6 +170,26 @@ export const App: Component = () => {
 			}
 			return;
 		}
+
+		if (key == "g") {
+			if (!GPress) GPress = true;
+			else {
+				setSelectedFile(0);
+				GPress = false;
+			}
+		}
+
+		if (key == "d") {
+			if (!DPress) DPress = true;
+			else {
+				const currentlySelectedFile = fileList()[selectedFile()];
+				await safeAwait(DeleteFile(currentDir() + "/" + currentlySelectedFile.FileName));
+				DPress = false;
+				fetchList();
+				setSelectedFile(currentlySelectedFile - 1 >= 0 ? currentlySelectedFile - 1 : 0);
+			}
+		}
+
 
 		// Keybinds when inputbox is not in fox
 		if (key === "/") {
@@ -197,7 +251,7 @@ export const App: Component = () => {
 				</div>
 			</div>
 			<div class="fixed bottom-[1rem] right-[1rem] py-1 px-4 bg-[#252933] text-white rounded-full">
-				{currentDir()}
+				{currentDir() === "/" ? "/" : truncateFilePath(currentDir())}
 			</div>
 		</>
 	)
