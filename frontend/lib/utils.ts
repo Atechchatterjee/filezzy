@@ -31,3 +31,26 @@ export async function safeAwait<T, E = Error>(
 		return [err as E, null];
 	}
 }
+
+export function truncateFilePath(filepath: string): string {
+	// Remove trailing slash if present
+	filepath = filepath.replace(/\/$/, '');
+
+	// Split the path into components
+	const parts = filepath.split('/');
+
+	// Handle special cases
+	if (parts.length <= 4) {  // Including empty string before first '/'
+		return filepath;
+	}
+
+	// Get the last three components
+	const lastThree = parts.slice(-3);
+
+	// Handle root directory cases
+	if (filepath.startsWith('/')) {
+		return '/.../' + lastThree.join('/');
+	}
+
+	return '.../' + lastThree.join('/');
+}
